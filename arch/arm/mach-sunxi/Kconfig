@@ -134,8 +134,8 @@ config SUNXI_GEN_SUN6I
 
 config SUN50I_GEN_H6
 	bool
-	select FIT
-	select SPL_LOAD_FIT
+	select FIT if ARM64
+	select SPL_LOAD_FIT if ARM64
 	select MMC_SUNXI_HAS_NEW_MODE
 	select SUPPORT_SPL
 	---help---
@@ -359,6 +359,14 @@ config MACH_SUN50I_H6
 	select DRAM_SUN50I_H6
 	select SUN50I_GEN_H6
 
+config MACH_SUN8I_V5
+	bool "sun8i (Allwinner V5)"
+	select CPU_V7A
+	select PHY_SUN4I_USB
+	select DRAM_SUN50I_H6
+	select SUN50I_GEN_H6
+
+
 config MACH_SUN50I_H616
 	bool "sun50i (Allwinner H616)"
 	select ARM64
@@ -475,6 +483,7 @@ config DRAM_CLK
 	default 672 if MACH_SUN50I
 	default 744 if MACH_SUN50I_H6
 	default 720 if MACH_SUN50I_H616
+	default 744 if MACH_SUN8I_V5
 	---help---
 	Set the dram clock speed, valid range 240 - 480 (prior to sun9i),
 	must be a multiple of 24. For the sun9i (A80), the tested values
@@ -496,7 +505,7 @@ config DRAM_ZQ
 		       MACH_SUN8I_A23 || MACH_SUN8I_A33 || MACH_SUN8I_A83T
 	default 127 if MACH_SUN7I
 	default 14779 if MACH_SUN8I_V3S
-	default 3881979 if MACH_SUNXI_H3_H5 || MACH_SUN8I_R40 || MACH_SUN50I_H6
+	default 3881979 if MACH_SUNXI_H3_H5 || MACH_SUN8I_R40 || MACH_SUN50I_H6 || MACH_SUN8I_V5
 	default 4145117 if MACH_SUN9I
 	default 3881915 if MACH_SUN50I
 	---help---
@@ -615,6 +624,7 @@ config SYS_CONFIG_NAME
 	default "sun50i" if MACH_SUN50I
 	default "sun50i" if MACH_SUN50I_H6
 	default "sun50i" if MACH_SUN50I_H616
+	default "sun50i" if MACH_SUN8I_V5
 
 config SYS_BOARD
 	default "sunxi"
@@ -1013,7 +1023,7 @@ config SPL_STACK_R_ADDR
 
 config SPL_SPI_SUNXI
 	bool "Support for SPI Flash on Allwinner SoCs in SPL"
-	depends on MACH_SUN4I || MACH_SUN5I || MACH_SUN7I || MACH_SUNXI_H3_H5 || MACH_SUN50I || MACH_SUN8I_R40 || MACH_SUN50I_H6 || MACH_SUNIV
+	depends on MACH_SUN4I || MACH_SUN5I || MACH_SUN7I || MACH_SUNXI_H3_H5 || MACH_SUN50I || MACH_SUN8I_R40 || MACH_SUN50I_H6 || MACH_SUNIV || MACH_SUN8I_V5
 	help
 	  Enable support for SPI Flash. This option allows SPL to read from
 	  sunxi SPI Flash. It uses the same method as the boot ROM, so does

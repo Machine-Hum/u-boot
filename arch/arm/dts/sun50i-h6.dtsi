@@ -390,7 +390,7 @@
 			};
 
 			uart0_ph_pins: uart0-ph-pins {
-				pins = "PH0", "PH1";
+				pins = "PB9", "PB10";
 				function = "uart0";
 			};
 

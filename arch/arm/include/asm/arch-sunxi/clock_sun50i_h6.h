@@ -263,7 +263,7 @@ struct sunxi_ccm_reg {
 #define CCM_CPU_AXI_AXI_MASK		0x3
 #define CCM_CPU_AXI_DEFAULT_FACTORS	0x301
 
-#ifdef CONFIG_MACH_SUN50I_H6
+#if defined(CONFIG_MACH_SUN50I_H6) || defined(CONFIG_MACH_SUN8I_V5)
 #define CCM_PLL6_DEFAULT		0xa0006300
 
 /* psi_ahb1_ahb2 bit field */
