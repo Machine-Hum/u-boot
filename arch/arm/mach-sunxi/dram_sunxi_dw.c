@@ -405,7 +405,8 @@ static void mctl_set_cr(uint16_t socid, struct dram_para *para)
 	       MCTL_CR_PAGE_SIZE(para->ranks[0].page_size) |
 	       MCTL_CR_ROW_BITS(para->ranks[0].row_bits), &mctl_com->cr);
 
-	if (para->dual_rank && (socid == SOCID_A64 || socid == SOCID_R40)) {
+	if (para->dual_rank &&
+	    (socid == SOCID_A64 || socid == SOCID_R40 || socid == SOCID_V5)) {
 		writel((para->ranks[1].bank_bits == 3 ? MCTL_CR_EIGHT_BANKS : MCTL_CR_FOUR_BANKS) |
 		       MCTL_CR_BUS_FULL_WIDTH(para->bus_full_width) |
 		       MCTL_CR_DUAL_RANK |
@@ -420,6 +421,53 @@ static void mctl_set_cr(uint16_t socid, struct dram_para *para)
 	}
 }
 
+#ifdef CONFIG_SUN50I_GEN_H6
+static void mctl_sys_init(uint16_t socid, struct dram_para *para)
+{
+	struct sunxi_ccm_reg * const ccm =
+			(struct sunxi_ccm_reg *)SUNXI_CCM_BASE;
+	struct sunxi_mctl_ctl_reg * const mctl_ctl =
+			(struct sunxi_mctl_ctl_reg *)SUNXI_DRAM_CTL0_BASE;
+
+	/* Put all DRAM-related blocks to reset state */
+	clrbits_le32(&ccm->mbus_cfg, MBUS_ENABLE | MBUS_RESET);
+	clrbits_le32(&ccm->dram_gate_reset, BIT(0));
+	udelay(5);
+	writel(0, &ccm->dram_gate_reset);
+	clrbits_le32(&ccm->pll5_cfg, CCM_PLL5_CTRL_EN);
+	clrbits_le32(&ccm->dram_clk_cfg, DRAM_MOD_RESET);
+
+	udelay(5);
+
+	/* Set PLL5 rate to doubled DRAM clock rate */
+	writel(CCM_PLL5_CTRL_EN | CCM_PLL5_LOCK_EN |
+	       CCM_PLL5_CTRL_N(CONFIG_DRAM_CLK * 2 / 24), &ccm->pll5_cfg);
+	mctl_await_completion(&ccm->pll5_cfg, CCM_PLL5_LOCK, CCM_PLL5_LOCK);
+
+	/* Configure DRAM mod clock */
+	writel(DRAM_CLK_SRC_PLL5, &ccm->dram_clk_cfg);
+	setbits_le32(&ccm->dram_clk_cfg, DRAM_CLK_UPDATE);
+	writel(BIT(RESET_SHIFT), &ccm->dram_gate_reset);
+	udelay(5);
+	setbits_le32(&ccm->dram_gate_reset, BIT(0));
+
+	/* Disable all channels */
+//	writel(0, &mctl_com->maer0);
+//	writel(0, &mctl_com->maer1);
+//	writel(0, &mctl_com->maer2);
+
+	/* Configure MBUS and enable DRAM mod reset */
+	setbits_le32(&ccm->mbus_cfg, MBUS_RESET);
+	setbits_le32(&ccm->mbus_cfg, MBUS_ENABLE);
+	setbits_le32(&ccm->dram_clk_cfg, DRAM_MOD_RESET);
+	udelay(5);
+
+	writel(0x8000, &mctl_ctl->clken);
+
+	udelay(500);
+}
+
+#else
 static void mctl_sys_init(uint16_t socid, struct dram_para *para)
 {
 	struct sunxi_ccm_reg * const ccm =
@@ -447,7 +495,8 @@ static void mctl_sys_init(uint16_t socid, struct dram_para *para)
 				CCM_DRAMCLK_CFG_DIV(1) |
 				CCM_DRAMCLK_CFG_SRC_PLL11 |
 				CCM_DRAMCLK_CFG_UPD);
-	} else if (socid == SOCID_H3 || socid == SOCID_H5 || socid == SOCID_V3S) {
+	} else if (socid == SOCID_H3 || socid == SOCID_H5 ||
+		   socid == SOCID_V3S || socid == SOCID_V5) {
 		clock_set_pll5(CONFIG_DRAM_CLK * 2 * 1000000, false);
 		clrsetbits_le32(&ccm->dram_clk_cfg,
 				CCM_DRAMCLK_CFG_DIV_MASK |
@@ -469,6 +518,7 @@ static void mctl_sys_init(uint16_t socid, struct dram_para *para)
 	writel(socid == SOCID_H5 ? 0x8000 : 0xc00e, &mctl_ctl->clken);
 	udelay(500);
 }
+#endif
 
 /* These are more guessed based on some Allwinner code. */
 #define DX_GCR_ODT_DYNAMIC	(0x0 << 4)
@@ -509,7 +559,7 @@ static int mctl_channel_init(uint16_t socid, struct dram_para *para)
 		u32 setmask = IS_ENABLED(CONFIG_DRAM_ODT_EN) ?
 				DX_GCR_ODT_DYNAMIC : DX_GCR_ODT_OFF;
 
-		if (socid == SOCID_H5) {
+		if (socid == SOCID_H5 || socid == SOCID_V5) {
 			clearmask |= 0x2 << 8;
 			setmask |= 0x4 << 8;
 		}
@@ -537,7 +587,7 @@ static int mctl_channel_init(uint16_t socid, struct dram_para *para)
 		/* dphy & aphy phase select 270 degree */
 		clrsetbits_le32(&mctl_ctl->pgcr[2], (0x3 << 10) | (0x3 << 8),
 				(0x1 << 10) | (0x1 << 8));
-	} else if (socid == SOCID_A64 || socid == SOCID_H5) {
+	} else if (socid == SOCID_A64 || socid == SOCID_H5 || socid == SOCID_V5) {
 		/* dphy & aphy phase select ? */
 		clrsetbits_le32(&mctl_ctl->pgcr[2], (0x3 << 10) | (0x3 << 8),
 				(0x0 << 10) | (0x3 << 8));
@@ -579,7 +629,7 @@ static int mctl_channel_init(uint16_t socid, struct dram_para *para)
 
 		mctl_phy_init(PIR_PLLINIT | PIR_DCAL | PIR_PHYRST |
 			      PIR_DRAMRST | PIR_DRAMINIT | PIR_QSGATE);
-	} else if (socid == SOCID_A64 || socid == SOCID_H5) {
+	} else if (socid == SOCID_A64 || socid == SOCID_H5 || socid == SOCID_V5) {
 		clrsetbits_le32(&mctl_ctl->zqcr, 0xffffff, CONFIG_DRAM_ZQ);
 
 		mctl_phy_init(PIR_ZCAL | PIR_PLLINIT | PIR_DCAL | PIR_PHYRST |
@@ -640,7 +690,8 @@ static int mctl_channel_init(uint16_t socid, struct dram_para *para)
 	/* set PGCR3, CKE polarity */
 	if (socid == SOCID_H3 || socid == SOCID_V3S)
 		writel(0x00aa0060, &mctl_ctl->pgcr[3]);
-	else if (socid == SOCID_A64 || socid == SOCID_H5 || socid == SOCID_R40)
+	else if (socid == SOCID_A64 || socid == SOCID_H5 ||
+		 socid == SOCID_R40 || socid == SOCID_V5)
 		writel(0xc0aa0060, &mctl_ctl->pgcr[3]);
 
 	/* power down zq calibration module for power save */
@@ -658,7 +709,10 @@ static int mctl_channel_init(uint16_t socid, struct dram_para *para)
 static bool mctl_mem_matches_base(u32 offset, ulong base)
 {
 	/* Try to write different values to RAM at two addresses */
+    printf("\n%s:%d", __FILE__, __LINE__);
+    printf("\n writel: 0x%lx", base);
 	writel(0, base);
+    printf("\n%s:%d", __FILE__, __LINE__);
 	writel(0xaa55aa55, base + offset);
 	dsb();
 	/* Check if the same value is actually observed when reading back */
@@ -668,6 +722,7 @@ static bool mctl_mem_matches_base(u32 offset, ulong base)
 
 static void mctl_auto_detect_dram_size_rank(uint16_t socid, struct dram_para *para, ulong base, struct rank_para *rank)
 {
+
 	/* detect row address bits */
 	rank->page_size = 512;
 	rank->row_bits = 16;
@@ -678,6 +733,7 @@ static void mctl_auto_detect_dram_size_rank(uint16_t socid, struct dram_para *pa
 		if (mctl_mem_matches_base((1 << (rank->row_bits + rank->bank_bits)) * rank->page_size, base))
 			break;
 
+
 	/* detect bank address bits */
 	rank->bank_bits = 3;
 	mctl_set_cr(socid, para);
@@ -685,6 +741,7 @@ static void mctl_auto_detect_dram_size_rank(uint16_t socid, struct dram_para *pa
 	for (rank->bank_bits = 2; rank->bank_bits < 3; rank->bank_bits++)
 		if (mctl_mem_matches_base((1 << rank->bank_bits) * rank->page_size, base))
 			break;
+
 
 	/* detect page size */
 	rank->page_size = 8192;
@@ -746,7 +803,8 @@ static void mctl_auto_detect_dram_size(uint16_t socid, struct dram_para *para)
 {
 	mctl_auto_detect_dram_size_rank(socid, para, (ulong)CONFIG_SYS_SDRAM_BASE, &para->ranks[0]);
 
-	if ((socid == SOCID_A64 || socid == SOCID_R40) && para->dual_rank) {
+	if ((socid == SOCID_A64 || socid == SOCID_R40 || socid == SOCID_V5) &&
+	     para->dual_rank) {
 		mctl_auto_detect_dram_size_rank(socid, para, (ulong)CONFIG_SYS_SDRAM_BASE + mctl_calc_rank_size(&para->ranks[0]), &para->ranks[1]);
 	}
 }
@@ -840,6 +898,7 @@ static void mctl_auto_detect_dram_size(uint16_t socid, struct dram_para *para)
 
 unsigned long sunxi_dram_init(void)
 {
+	printf("\nStarting DRAM init");
 	struct sunxi_mctl_com_reg * const mctl_com =
 			(struct sunxi_mctl_com_reg *)SUNXI_DRAM_COM_BASE;
 	struct sunxi_mctl_ctl_reg * const mctl_ctl =
@@ -875,7 +934,7 @@ unsigned long sunxi_dram_init(void)
 		.dx_read_delays  = SUN8I_R40_DX_READ_DELAYS,
 		.dx_write_delays = SUN8I_R40_DX_WRITE_DELAYS,
 		.ac_delays	 = SUN8I_R40_AC_DELAYS,
-#elif defined(CONFIG_MACH_SUN50I)
+#elif defined(CONFIG_MACH_SUN50I) || defined(CONFIG_MACH_SUN8I_V5) 
 		.dx_read_delays  = SUN50I_A64_DX_READ_DELAYS,
 		.dx_write_delays = SUN50I_A64_DX_WRITE_DELAYS,
 		.ac_delays	 = SUN50I_A64_AC_DELAYS,
@@ -900,6 +959,8 @@ unsigned long sunxi_dram_init(void)
 	uint16_t socid = SOCID_A64;
 #elif defined(CONFIG_MACH_SUN50I_H5)
 	uint16_t socid = SOCID_H5;
+#elif defined(CONFIG_MACH_SUN8I_V5)
+	uint16_t socid = SOCID_V5;
 #endif
 
 	mctl_sys_init(socid, &para);

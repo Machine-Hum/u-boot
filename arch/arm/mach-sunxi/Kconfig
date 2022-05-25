@@ -363,8 +363,9 @@ config MACH_SUN8I_V5
 	bool "sun8i (Allwinner V5)"
 	select CPU_V7A
 	select PHY_SUN4I_USB
-	select DRAM_SUN50I_H6
 	select SUN50I_GEN_H6
+	select SUNXI_DRAM_DW
+	select SUNXI_DRAM_DW_32BIT
 
 
 config MACH_SUN50I_H616
